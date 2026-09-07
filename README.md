@@ -14,12 +14,20 @@ cqt-naa-qua/
 ├── chirp/
 │   ├── configuration_opx1000_mwfem_lffem.py   # QM hardware config
 │   └── run_saas_04_play_chirp.py              # QUA chirp program
-├── .env_sample                                # template for credentials 
+├── sorting/
+│   ├── array_sorting.py                       # QUA collision-free atom sorting program
+│   └── 07_atom_row_by_row_sorting.py          # row-by-row sorting variant, piecewise chirps
+├── .env_sample                                # template for credentials
 └── requirements.txt                           # pinned dependencies
 ```
 
 The chirp runs against the **Quantum Machines cloud simulator** (`qm-saas`) — no local
 hardware required, just QM cloud credentials.
+
+The sorting scripts drive **atom realignment**: rearranging an initial occupation
+matrix of trapped atoms into a target pattern using chirped tweezer moves. They
+depend on companion `configuration.py` / `config_array_sorting.py` and
+`array_sorting_macros.py` modules not yet checked into this repo.
 
 ## Setup
 
