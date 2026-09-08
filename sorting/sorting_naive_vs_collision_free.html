@@ -1,0 +1,194 @@
+<h2 class="sr-only">Interactive comparison of the naive k-th-to-k-th tweezer assignment against the collision-free assignment for a single row of an AOD atom array, showing site occupation and the resulting frequency-versus-time trajectories, with adjustable playback speed.</h2>
+<style>
+.seg{display:flex;border:0.5px solid var(--border-strong);border-radius:var(--radius);overflow:hidden}
+.seg button{border:none;border-radius:0;flex:1;font-size:13px;padding:7px 10px;background:transparent}
+.seg button.on{background:var(--bg-accent);color:var(--text-accent)}
+.mrow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:1rem 0 0}
+.mc{background:var(--surface-1);border-radius:var(--radius);padding:10px 12px}
+.mc .l{font-size:12px;color:var(--text-secondary)}
+.mc .v{font-size:22px;font-weight:500;line-height:1.3}
+.log{font-family:var(--font-mono);font-size:12px;line-height:1.75;color:var(--text-secondary);margin:1rem 0 0}
+.log b{font-weight:500;color:var(--text-primary)}
+.log .bad{color:var(--text-danger)}
+.log .ok{color:var(--text-success)}
+.lg{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--text-secondary);margin:8px 0 0}
+</style>
+
+<div style="display:flex;gap:12px;align-items:center;margin:1rem 0 0">
+  <div class="seg" style="flex:1" id="algo">
+    <button data-v="naive" class="on">Naive k-th &rarr; k-th</button>
+    <button data-v="cf">Collision-free</button>
+  </div>
+</div>
+
+<div style="display:flex;gap:12px;align-items:center;margin:10px 0 0;flex-wrap:wrap">
+  <label style="font-size:13px;color:var(--text-secondary)">Target pattern</label>
+  <select id="pat" style="flex:1;min-width:150px">
+    <option value="left">Left-compact</option>
+    <option value="center" selected>Centred core</option>
+    <option value="diamond">Scattered</option>
+  </select>
+  <label style="font-size:13px;color:var(--text-secondary)">Tweezers</label>
+  <input type="range" id="nt" min="2" max="8" step="1" value="6" style="width:110px">
+  <span id="ntv" style="font-size:13px;font-weight:500;min-width:12px">6</span>
+  <button id="reload"><i class="ti ti-refresh" aria-hidden="true" style="font-size:15px;vertical-align:-2px"></i> New load</button>
+</div>
+
+<div id="lattice" style="margin:1.25rem 0 0"></div>
+<div class="lg">
+  <span>Filled disc = atom &nbsp;·&nbsp; dashed ring = target site &nbsp;·&nbsp; thin outer circle = tweezer holding an atom</span>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;margin:1.25rem 0 0;flex-wrap:wrap">
+  <button id="play" style="min-width:104px"><i class="ti ti-player-play" aria-hidden="true" style="font-size:15px;vertical-align:-2px"></i> Play move</button>
+  <div class="seg" id="spd" style="width:150px;flex:none">
+    <button data-v="0.5">0.5&times;</button>
+    <button data-v="1" class="on">1&times;</button>
+    <button data-v="2">2&times;</button>
+  </div>
+  <input type="range" id="tt" min="0" max="1000" step="1" value="0" style="flex:1;min-width:140px">
+</div>
+
+<div id="chart" style="margin:8px 0 0"></div>
+<div class="lg">
+  <span>Diagonal = chirped tweezer</span><span>Horizontal = atom left in place</span><span style="color:var(--text-danger)">✕ = trajectory crossing → both atoms lost</span>
+</div>
+
+<div class="mrow">
+  <div class="mc"><div class="l">Tweezers used</div><div class="v" id="m1">–</div></div>
+  <div class="mc"><div class="l">Crossings</div><div class="v" id="m2">–</div></div>
+  <div class="mc"><div class="l">Atoms lost</div><div class="v" id="m3">–</div></div>
+  <div class="mc"><div class="l">Defects left</div><div class="v" id="m4">–</div></div>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+const N=16, LX=i=>40+i*40, CX=t=>90+t*550, CY=i=>250-i*(215/15);
+let occ=[], tgt=[], algo='naive', nt=6, T=0, timer=null, spd=1;
+const DUR=9000;
+
+function load(){occ=Array.from({length:N},()=>Math.random()<0.6);}
+function pattern(p){
+  tgt=Array(N).fill(false);
+  if(p==='left'){for(let i=0;i<6;i++)tgt[i]=true;}
+  else if(p==='center'){for(let i=5;i<11;i++)tgt[i]=true;}
+  else{[1,4,5,8,11,14].forEach(i=>tgt[i]=true);}
+}
+const idx=a=>a.map((v,i)=>v?i:-1).filter(i=>i>=0);
+
+function naive(A,Tg,K){const p=[],L=[];
+  for(let k=0;k<K;k++){p.push({s:A[k],d:Tg[k]});
+    L.push(`atom #${k+1} at site ${A[k]} <b>&rarr;</b> target #${k+1} at site ${Tg[k]}`);}
+  return{p,L};}
+
+function cf(A,Tg,K){const p=[],L=[],used=new Set();let prev=-1;
+  for(let j=0;j<K;j++){const t=Tg[j],need=K-j-1;let ch=null,note='';
+    for(let a=t;a>prev;a--){ if(!occ[a]||used.has(a)) continue;
+      const right=A.filter(x=>x>a&&!used.has(x)).length;
+      if(right>=need){ch=a;note=`scan left &rarr; site ${a}, ${right} atoms to its right ≥ ${need} still needed <span class="ok">✓</span>`;break;}
+      note=`scan left &rarr; site ${a} rejected (only ${right} atoms right, ${need} more targets) `;}
+    if(ch===null){for(let a=t+1;a<N;a++){if(occ[a]&&!used.has(a)&&a>prev){ch=a;note+=`; scan right &rarr; site ${a} <span class="ok">✓</span>`;break;}}}
+    if(ch===null){L.push(`target ${t}: <span class="bad">no atom available</span>`);continue;}
+    used.add(ch);prev=ch;p.push({s:ch,d:t});
+    L.push(`target ${t}: ${note} <b>&rarr; take ${ch}</b>`);}
+  return{p,L};}
+
+function solve(){
+  const A=idx(occ),Tg=idx(tgt),K=Math.min(A.length,Tg.length,nt);
+  const r=algo==='naive'?naive(A,Tg,K):cf(A,Tg,K);
+  const moving=new Set(r.p.map(x=>x.s));
+  const stat=A.filter(a=>!moving.has(a));
+  const hits=[];
+  for(let i=0;i<r.p.length;i++)for(let j=i+1;j<r.p.length;j++){
+    const a=r.p[i],b=r.p[j];
+    if(Math.sign(a.s-b.s)*Math.sign(a.d-b.d)<=0){
+      const den=(a.s-b.s)-(a.d-b.d);const u=den===0?0.5:(a.s-b.s)/den;
+      hits.push({t:0.15+0.7*Math.max(0,Math.min(1,u)),y:a.s+(a.d-a.s)*Math.max(0,Math.min(1,u)),k:[i,j],st:[]});}}
+  r.p.forEach((m,i)=>{stat.forEach(s=>{
+    const lo=Math.min(m.s,m.d),hi=Math.max(m.s,m.d);
+    if(s>lo&&s<hi||s===m.d&&m.d!==m.s){
+      const u=m.d===m.s?0:(s-m.s)/(m.d-m.s);
+      hits.push({t:0.15+0.7*u,y:s,k:[i],st:[s]});}});});
+  const lostM=new Set(),lostS=new Set();
+  hits.forEach(h=>{h.k.forEach(i=>lostM.add(i));h.st.forEach(s=>lostS.add(s));});
+  const fin=Array(N).fill(false);
+  stat.forEach(s=>{if(!lostS.has(s))fin[s]=true;});
+  r.p.forEach((m,i)=>{if(!lostM.has(i))fin[m.d]=true;});
+  const def=Tg.filter(t=>!fin[t]).length;
+  return{...r,K,stat,hits,lostM,lostS,fin,def};
+}
+
+function drawLattice(S){
+  let s=`<svg width="100%" viewBox="0 0 680 130" role="img"><title>Site occupation</title><desc>One row of sites showing atoms and target sites.</desc>`;
+  s+=`<line x1="30" y1="70" x2="650" y2="70" stroke="var(--border-strong)" stroke-width="0.5"/>`;
+  for(let i=0;i<N;i++){
+    const x=LX(i);
+    if(tgt[i])s+=`<circle cx="${x}" cy="70" r="13" fill="none" stroke="var(--text-accent)" stroke-width="1" stroke-dasharray="3 3"/>`;
+    s+=`<circle cx="${x}" cy="70" r="3" fill="var(--border-stronger)"/>`;
+    s+=`<text class="ts" x="${x}" y="103" text-anchor="middle" fill="var(--text-muted)">${i}</text>`;}
+  S.stat.forEach(a=>{const dead=S.lostS.has(a)&&T>0.15;
+    s+=`<circle cx="${LX(a)}" cy="70" r="8" fill="${dead?'var(--bg-danger)':'#888780'}" stroke="${dead?'var(--text-danger)':'none'}" stroke-width="1"/>`;});
+  S.p.forEach((m,i)=>{
+    const u=T<0.15?0:T>0.85?1:(T-0.15)/0.7, pos=m.s+(m.d-m.s)*u;
+    const dead=S.lostM.has(i)&&T>0.15;
+    const cx=40+pos*40;
+    s+=`<circle cx="${cx}" cy="70" r="15" fill="none" stroke="${dead?'var(--text-danger)':'var(--text-accent)'}" stroke-width="1"/>`;
+    s+=`<circle cx="${cx}" cy="70" r="8" fill="${dead?'var(--bg-danger)':'#1D9E75'}"/>`;});
+  s+=`<text class="ts" x="30" y="30" fill="var(--text-secondary)">site index  ≡  RF frequency</text></svg>`;
+  document.getElementById('lattice').innerHTML=s;
+}
+
+function drawChart(S){
+  let s=`<svg width="100%" viewBox="0 0 680 300" role="img"><title>Frequency versus time</title><desc>Space-time trajectories of the tweezers during the pulse.</desc>`;
+  s+=`<rect x="90" y="20" width="82" height="230" fill="var(--surface-1)"/><rect x="558" y="20" width="82" height="230" fill="var(--surface-1)"/>`;
+  s+=`<text class="ts" x="131" y="272" text-anchor="middle" fill="var(--text-muted)">ramp up</text>`;
+  s+=`<text class="ts" x="365" y="272" text-anchor="middle" fill="var(--text-muted)">chirp</text>`;
+  s+=`<text class="ts" x="599" y="272" text-anchor="middle" fill="var(--text-muted)">ramp down</text>`;
+  for(let i=0;i<N;i+=3)s+=`<text class="ts" x="80" y="${CY(i)+4}" text-anchor="end" fill="var(--text-muted)">${i}</text>`;
+  s+=`<line x1="90" y1="20" x2="90" y2="250" stroke="var(--border-strong)" stroke-width="0.5"/>`;
+  S.stat.forEach(a=>{const d=S.lostS.has(a);
+    s+=`<line x1="90" y1="${CY(a)}" x2="640" y2="${CY(a)}" stroke="${d?'#E24B4A':'#888780'}" stroke-width="${d?1.4:1}" stroke-dasharray="4 4" opacity="${d?1:0.55}"/>`;});
+  S.p.forEach((m,i)=>{const d=S.lostM.has(i),c=d?'#E24B4A':'#1D9E75';
+    s+=`<polyline points="90,${CY(m.s)} 172,${CY(m.s)} 558,${CY(m.d)} 640,${CY(m.d)}" fill="none" stroke="${c}" stroke-width="1.6" stroke-linejoin="round"/>`;});
+  S.hits.forEach(h=>{const x=CX(h.t),y=CY(h.y);
+    s+=`<path d="M${x-5} ${y-5}L${x+5} ${y+5}M${x+5} ${y-5}L${x-5} ${y+5}" stroke="#E24B4A" stroke-width="1.8" fill="none" stroke-linecap="round"/>`;});
+  s+=`<line x1="${CX(T)}" y1="20" x2="${CX(T)}" y2="250" stroke="var(--text-accent)" stroke-width="1"/>`;
+  s+=`<text class="ts" x="30" y="20" fill="var(--text-secondary)">frequency</text>`;
+  s+=`<text class="ts" x="640" y="290" text-anchor="end" fill="var(--text-secondary)">time within pulse</text></svg>`;
+  document.getElementById('chart').innerHTML=s;
+}
+
+function render(){
+  const S=solve();
+  drawLattice(S);drawChart(S);
+  document.getElementById('m1').textContent=S.K;
+  document.getElementById('m2').textContent=S.hits.length;
+  document.getElementById('m3').textContent=S.lostM.size+S.lostS.size;
+  document.getElementById('m4').textContent=S.def;
+  document.getElementById('m2').style.color=S.hits.length?'var(--text-danger)':'var(--text-success)';
+  document.getElementById('m4').style.color=S.def?'var(--text-danger)':'var(--text-success)';
+  document.getElementById('log').innerHTML=S.L.map(x=>'· '+x).join('<br>');
+}
+
+document.querySelectorAll('#algo button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#algo button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');algo=b.dataset.v;render();});
+document.querySelectorAll('#spd button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#spd button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');spd=+b.dataset.v;});
+document.getElementById('pat').onchange=e=>{pattern(e.target.value);render();};
+document.getElementById('nt').oninput=e=>{nt=+e.target.value;document.getElementById('ntv').textContent=nt;render();};
+document.getElementById('reload').onclick=()=>{load();render();};
+document.getElementById('tt').oninput=e=>{cancelAnimationFrame(timer);T=+e.target.value/1000;render();};
+document.getElementById('play').onclick=()=>{
+  cancelAnimationFrame(timer);
+  const t0=performance.now();
+  const step=now=>{
+    T=Math.min(1,(now-t0)*spd/DUR);
+    document.getElementById('tt').value=Math.round(T*1000);
+    render();
+    if(T<1)timer=requestAnimationFrame(step);};
+  timer=requestAnimationFrame(step);};
+load();pattern('center');render();
+</script>
