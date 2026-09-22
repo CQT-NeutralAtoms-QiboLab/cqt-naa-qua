@@ -1,0 +1,5 @@
+center,100.391
+coefs,5.8455495908746264e-15,-5.4806673836717375e-12,1.9022637774684955e-09,-3.025134734371451e-07,2.055519508826195e-05,-0.0008622920160419322,0.9991786771709529
+computation_latency_cc_04_arb_tone_MJ_row_sort,88
+computation_latency_cc_02_arb_tone_MJ_manual,15
+computation_latency_cc_03_arb_tone_MJ_sort_manual_IS,88
